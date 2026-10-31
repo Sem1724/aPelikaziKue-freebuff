@@ -23,7 +23,7 @@ export const MENU = [
   { href: "/gantungan", label: "Gantungan", keterangan: "Saldo kurang atau lebih yang belum selesai", Ikon: IkonGantungan },
   { href: "/rekap", label: "Rekap", keterangan: "Penitip yang dibayar per periode", Ikon: IkonRekap },
   { href: "/master", label: "Data Master", keterangan: "Penitip, kue, dan harga", Ikon: IkonMaster },
-  { href: "/cadangan", label: "Cadangan", keterangan: "Ekspor, pulihkan, dan Google Sheet", Ikon: IkonCadangan },
+  { href: "/cadangan", label: "Cadangan", keterangan: "Cadangan, pulihkan, dan akun", Ikon: IkonCadangan },
 ];
 
 function NavTautan({ aktif }: { aktif: boolean }) {
@@ -32,7 +32,7 @@ function NavTautan({ aktif }: { aktif: boolean }) {
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { tanggal, aksi, sheet, galatSimpan, ukuran } = useStore();
+  const { tanggal, aksi, cloud, galatSimpan, ukuran } = useStore();
   const aktif = MENU.find((m) => m.href === pathname) ?? MENU[0];
   const tampilTanggal = pathname === "/" || pathname === "/laporan";
 
@@ -67,7 +67,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           })}
         </nav>
         <div className="border-t border-slate-200 px-5 py-4 text-[11px] leading-relaxed text-slate-500">
-          Data tersimpan di perangkat ini · {ukuranTeks(ukuran)}
+          {cloud.aktif ? "Tersinkron ke akun Anda" : "Data tersimpan di perangkat ini"} · {ukuranTeks(ukuran)}
         </div>
       </aside>
 
@@ -98,15 +98,15 @@ export function AppShell({ children }: { children: ReactNode }) {
                   />
                 </label>
               )}
-              {sheet.aktif && (
+              {cloud.aktif && (
                 <span
                   className="inline-flex max-w-[14rem] items-center gap-1.5 rounded-full border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600"
-                  title={sheet.teks}
+                  title={cloud.teks}
                 >
                   <span
-                    className={`h-2 w-2 shrink-0 rounded-full ${sheet.galat ? "bg-red-500" : "bg-emerald-500"}`}
+                    className={`h-2 w-2 shrink-0 rounded-full ${cloud.galat ? "bg-red-500" : "bg-emerald-500"}`}
                   />
-                  <span className="hidden truncate sm:inline">{sheet.teks || "Sheet tersambung"}</span>
+                  <span className="hidden truncate sm:inline">{cloud.teks || "Firebase tersambung"}</span>
                 </span>
               )}
             </div>
@@ -143,7 +143,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-5 lg:px-6 lg:py-6">{children}</main>
 
         <footer className="border-t border-slate-200 px-4 py-4 text-center text-xs text-slate-400 lg:px-6">
-          Catatan Titipan Kue · data milik Anda, tersimpan di perangkat ini ·{" "}
+          Catatan Titipan Kue · {cloud.aktif ? "data tersinkron ke akun Anda" : "data tersimpan di perangkat ini"} ·{" "}
           <Link href="/cadangan" className="text-slate-500 underline-offset-2 hover:underline">
             unduh cadangan
           </Link>

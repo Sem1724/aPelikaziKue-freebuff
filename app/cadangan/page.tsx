@@ -1,37 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { CADANGAN_META, buatIsiCadangan, unduhTeks } from "@/lib/backup";
 import { hariIni, namaTanggalPendek } from "@/lib/format";
 import { ukuranTeks } from "@/lib/storage";
 import { useStore } from "@/lib/store";
 import type { JenisCadangan } from "@/lib/types";
-import { IkonMata, IkonMataTutup } from "@/components/icons";
 import { TombolYakin } from "@/components/tombol-yakin";
 
 const URUTAN: JenisCadangan[] = ["harian", "pengaturan", "master", "semua"];
 
 export default function HalamanCadangan() {
-  const { db, aksi, ukuran, sheet, hubungkanSheet, putuskanSheet } = useStore();
+  const { db, aksi, ukuran, cloud, keluar, sinkronSekarang } = useStore();
   const [info, setInfo] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const jenisRef = useRef<JenisCadangan>("semua");
 
-  const [url, setUrl] = useState(sheet.config?.url ?? "");
-  const [kunci, setKunci] = useState(sheet.config?.kunci ?? "");
-  const [lihatKunci, setLihatKunci] = useState(false);
   const [tglHapus, setTglHapus] = useState(hariIni());
-
-  useEffect(() => {
-    setUrl(sheet.config?.url ?? "");
-    setKunci(sheet.config?.kunci ?? "");
-  }, [sheet.config]);
-
-  useEffect(() => {
-    if (!lihatKunci) return;
-    const t = setTimeout(() => setLihatKunci(false), 8000);
-    return () => clearTimeout(t);
-  }, [lihatKunci]);
 
   const tanggalAda = Object.keys(db.hari)
     .filter((t) => Object.values(db.hari[t]).some((e) => e.hadir))
@@ -63,21 +48,13 @@ export default function HalamanCadangan() {
     }
   };
 
-  const hubungkan = () => {
-    const alamat = url.trim();
-    if (!alamat.startsWith("https://script.google.com/")) {
-      setInfo("Alamat Apps Script harus diawali https://script.google.com/");
-      return;
-    }
-    hubungkanSheet({ url: alamat, kunci });
-    setInfo("Menyambungkan… lihat status di bagian atas.");
-  };
-
   return (
     <div className="space-y-4">
       <p className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-        Data tersimpan di browser perangkat ini. Unduh cadangan secara berkala, atau gunakan untuk
-        memindahkan data ke perangkat lain. Cadangan dibagi per bagian, dan file hanya bisa dipulihkan
+        {cloud.aktif
+          ? "Data otomatis tersinkron ke akun Firebase Anda, dan salinannya ada di browser perangkat ini. "
+          : "Data tersimpan di browser perangkat ini. "}
+        Tetap unduh cadangan secara berkala sebagai pengaman tambahan. Cadangan dibagi per bagian, dan file hanya bisa dipulihkan
         di bagian yang sama. Pulihkan Catatan Harian dan Data Master dari cadangan yang dibuat pada
         waktu yang sama.
       </p>
@@ -167,68 +144,28 @@ export default function HalamanCadangan() {
         </div>
       </section>
 
-      <section className="card">
-        <div className="border-b border-slate-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-800">Simpan ke Google Sheet</h2>
-          <p className="mt-0.5 text-xs text-slate-500">
-            Isi di setiap perangkat yang ingin dipakai. Unduh cadangan dulu sebelum menghubungkan.
-            Jika Sheet sudah berisi data, data di perangkat ini diganti dengan isi Sheet.
-          </p>
-        </div>
-        <div className="space-y-3 px-4 py-3">
-          <label className="block">
-            <span className="label">Alamat Apps Script</span>
-            <input
-              className="input"
-              placeholder="https://script.google.com/macros/s/.../exec"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-            />
-          </label>
-          <label className="block">
-            <span className="label">Kunci (kata sandi)</span>
-            <div className="flex gap-2">
-              <input
-                className="input"
-                type={lihatKunci ? "text" : "password"}
-                value={kunci}
-                onChange={(e) => setKunci(e.target.value)}
-              />
-              <button
-                type="button"
-                className="btn btn-secondary shrink-0 px-3"
-                aria-label={lihatKunci ? "Sembunyikan kunci" : "Tampilkan kunci"}
-                onClick={() => setLihatKunci((v) => !v)}
-              >
-                {lihatKunci ? <IkonMataTutup /> : <IkonMata />}
-              </button>
-            </div>
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <button type="button" className="btn btn-primary" onClick={hubungkan}>
-              Hubungkan
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => {
-                putuskanSheet();
-                setInfo("Koneksi ke Google Sheet diputuskan. Data di perangkat tetap ada.");
-              }}
-            >
-              Putuskan
-            </button>
-            {sheet.aktif && (
-              <span className={`text-xs ${sheet.galat ? "text-red-600" : "text-slate-500"}`}>
-                {sheet.teks || "Tersambung"}
-              </span>
-            )}
+      {cloud.aktif && (
+        <section className="card">
+          <div className="border-b border-slate-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-slate-800">Akun dan sinkronisasi</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Masuk sebagai <b className="text-slate-700">{cloud.email}</b>. Catatan disimpan otomatis ke Firebase
+              dan muncul di semua perangkat setelah Anda masuk dengan akun yang sama.
+            </p>
           </div>
-          <p className="text-[11px] text-slate-400">
-            Alamat dan kunci hanya disimpan di perangkat ini, tidak ikut ke dalam file cadangan.
-          </p>
-        </div>
-      </section>
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <button type="button" className="btn btn-secondary" onClick={sinkronSekarang}>
+              Sinkronkan sekarang
+            </button>
+            <TombolYakin className="btn btn-secondary" pesanYakin="Tekan lagi untuk keluar" onConfirm={keluar}>
+              Keluar
+            </TombolYakin>
+            <span className={`text-xs ${cloud.galat ? "text-red-600" : "text-slate-500"}`}>
+              {cloud.teks || "Tersambung"}
+            </span>
+          </div>
+        </section>
+      )}
     </div>
   );
 }

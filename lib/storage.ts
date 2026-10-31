@@ -2,7 +2,10 @@ import { DEF_PENGATURAN, DATA_AWAL, buatId, klonRekap } from "./defaults";
 import type { DB, EntriHari, HariMap, KueHari, KueMaster, Penitip, Settings } from "./types";
 
 export const KUNCI_DB = "catatanTitipanKue";
-export const KUNCI_SHEET = "pengaturanSheet";
+/** Salinan data terakhir yang sudah sinkron dengan Firebase (dasar untuk menggabungkan perubahan). */
+export const KUNCI_DASAR = "dasarFirebase";
+/** Salinan data lokal yang tertimpa saat pertama kali tersambung (jaga-jaga). */
+export const KUNCI_SEBELUM = "salinanSebelumFirebase";
 export const SKEMA = 2;
 
 const objek = (v: unknown): v is Record<string, unknown> =>
@@ -135,7 +138,7 @@ function rapikanPeriode(mentah: unknown): DB["periode"] {
 }
 
 /**
- * Terima data dari localStorage, cadangan lama, atau Sheet, lalu jadikan DB yang sah.
+ * Terima data dari localStorage, cadangan lama, atau Firebase, lalu jadikan DB yang sah.
  * Melempar error hanya jika data sama sekali tidak bisa dipakai.
  */
 export function normalisasiDB(mentah: unknown, opsi: { longgar?: boolean } = {}): DB {

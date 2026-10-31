@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "firebase": "^13.1.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.9",
     "next": "16.4.3",

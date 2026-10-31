@@ -14,11 +14,21 @@ import type { DB, Gaya, Penitip, Profil, Settings } from "./types";
 import { buatId, penitipBaru } from "./defaults";
 import { buatKonteks, type Konteks } from "./calc";
 import { hariIni, jamSekarang } from "./format";
-import { muatDB, normalisasiDB, simpanDB, ukuranData } from "./storage";
-import { muatConfigSheet, panggilSheet, simpanConfigSheet, type SheetConfig } from "./sheet";
+import { KUNCI_DASAR, KUNCI_SEBELUM, muatDB, normalisasiDB, simpanDB, ukuranData } from "./storage";
 import { pulihkanCadangan, type HasilPulih } from "./backup";
+import { firebaseAktif } from "./firebase";
+import {
+  bacaCloud,
+  keluarAkun,
+  pantauCloud,
+  pantauMasuk,
+  tulisCloud,
+  type DokCloud,
+  type Pengguna,
+} from "./cloud";
+import { LayarMasuk } from "@/components/layar-masuk";
 
-type StatusSheet = { teks: string; galat: boolean };
+type StatusCloud = { teks: string; galat: boolean };
 
 type Aksi = {
   setHadir: (tgl: string, pid: string, hadir: boolean) => void;
@@ -55,9 +65,9 @@ type NilaiStore = {
   tanggal: string;
   ukuran: number;
   galatSimpan: string | null;
-  sheet: StatusSheet & { config: SheetConfig | null; aktif: boolean };
-  hubungkanSheet: (cfg: SheetConfig) => void;
-  putuskanSheet: () => void;
+  cloud: StatusCloud & { aktif: boolean; email: string };
+  keluar: () => void;
+  sinkronSekarang: () => void;
   aksi: Aksi;
 };
 
@@ -69,55 +79,63 @@ export function useStore(): NilaiStore {
   return v;
 }
 
+const adaIsi = (o: object) => Object.keys(o).length > 0;
+
+function bacaLokal(kunci: string): string | null {
+  try {
+    return window.localStorage.getItem(kunci);
+  } catch {
+    return null;
+  }
+}
+
+function tulisLokal(kunci: string, nilai: string): void {
+  try {
+    window.localStorage.setItem(kunci, nilai);
+  } catch {
+    /* kuota penuh: abaikan, hanya mengurangi ketepatan penggabungan */
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const mulaiSekali = useRef(false);
   const [db, setDb] = useState<DB | null>(null);
   const [siap, setSiap] = useState(false);
   const [tanggal, setTanggal] = useState(() => hariIni());
   const [galatSimpan, setGalatSimpan] = useState<string | null>(null);
   const [ukuran, setUkuran] = useState(0);
-  const [sheetStatus, setSheetStatus] = useState<StatusSheet>({ teks: "", galat: false });
-  const [config, setConfig] = useState<SheetConfig | null>(null);
+  const [cloudStatus, setCloudStatus] = useState<StatusCloud>({ teks: "", galat: false });
   const [salinanSebelum, setSalinanSebelum] = useState<string | null>(null);
+  const [pengguna, setPengguna] = useState<Pengguna | null>(null);
+  const [authSiap, setAuthSiap] = useState(!firebaseAktif);
 
   const dbRef = useRef<DB | null>(null);
   const terakhirRef = useRef<string>("");
   const remoteRef = useRef(false);
 
-  // Sinkronisasi Sheet
-  const cfgRef = useRef<SheetConfig | null>(null);
+  // Sinkronisasi Firebase
+  const uidRef = useRef<string | null>(null);
   const versiRef = useRef<number | null>(null);
   const dasarRef = useRef<string | null>(null);
   const kotorRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sedangRef = useRef(false);
   const tundaRef = useRef(false);
-  const ketikRef = useRef(0);
-  const tanpaVersiRef = useRef(false);
 
   const setStatus = useCallback((teks: string, galat = false) => {
-    setSheetStatus({ teks, galat });
+    setCloudStatus({ teks, galat });
   }, []);
 
   const pasangDb = useCallback((baru: DB, dariRemote = true) => {
     dbRef.current = baru;
     terakhirRef.current = JSON.stringify(baru);
-    // dariRemote = true: jangan kirim balik ke Sheet (data baru saja datang dari sana).
+    // dariRemote = true: jangan kirim balik ke Firebase (data baru saja datang dari sana).
     remoteRef.current = dariRemote;
     setDb(baru);
   }, []);
 
-  const terapkanDariSheet = useCallback(
-    (data: unknown, versi: number | undefined) => {
-      const baru = normalisasiDB(data, { longgar: true });
-      versiRef.current = versi ?? null;
-      dasarRef.current = JSON.stringify(baru);
-      kotorRef.current = false;
-      pasangDb(baru);
-      simpanDB(baru);
-    },
-    [pasangDb],
-  );
+  const simpanDasar = useCallback((json: string) => {
+    if (uidRef.current) tulisLokal(KUNCI_DASAR + ":" + uidRef.current, json);
+  }, []);
 
   const gabung = useCallback((basis: DB, lokal: DB, server: DB): DB => {
     const hasil: DB = JSON.parse(JSON.stringify(server));
@@ -149,17 +167,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const jadwalDorong = useCallback(() => {
     kotorRef.current = true;
-    if (!cfgRef.current || versiRef.current === null) return;
+    if (!uidRef.current || versiRef.current === null) return;
     tundaRef.current = true;
     if (timerRef.current) clearTimeout(timerRef.current);
-    setStatus("Menyimpan ke Sheet…");
+    setStatus("Menyimpan ke Firebase…");
     timerRef.current = setTimeout(() => void dorongRef.current?.(0), 1500);
   }, [setStatus]);
 
   const dorong = useCallback(
     async (percobaan: number) => {
-      const cfg = cfgRef.current;
-      if (!cfg) return;
+      const uid = uidRef.current;
+      if (!uid || versiRef.current === null) return;
       if (sedangRef.current) {
         if (timerRef.current) clearTimeout(timerRef.current);
         timerRef.current = setTimeout(() => void dorongRef.current?.(0), 1000);
@@ -169,27 +187,31 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       sedangRef.current = true;
       const kirim = JSON.stringify(dbRef.current);
       try {
-        const r = await panggilSheet(cfg, "tulis", { versi: versiRef.current, data: dbRef.current });
+        const r = await tulisCloud(uid, versiRef.current, kirim);
         if (r.ok) {
-          versiRef.current = r.versi ?? versiRef.current;
+          versiRef.current = r.versi;
           dasarRef.current = kirim;
+          simpanDasar(kirim);
           const masihKotor = JSON.stringify(dbRef.current) !== kirim;
           kotorRef.current = masihKotor;
           if (masihKotor) jadwalDorong();
           else setStatus("Tersimpan " + jamSekarang());
-        } else if (r.konflik) {
+        } else {
+          // Perangkat lain sudah menyimpan lebih dulu: gabungkan perubahan kita ke data server.
           let server: DB;
           try {
-            server = normalisasiDB(r.data, { longgar: true });
+            server = normalisasiDB(JSON.parse(r.data), { longgar: true });
           } catch {
-            setStatus("Sheet: data dari perangkat lain tidak bisa dibaca.", true);
+            setStatus("Firebase: data dari perangkat lain tidak bisa dibaca.", true);
             sedangRef.current = false;
             return;
           }
           const dasar = dasarRef.current ? (JSON.parse(dasarRef.current) as DB) : null;
+          if (!dasar && dbRef.current) tulisLokal(KUNCI_SEBELUM, JSON.stringify(dbRef.current));
           const hasil = dasar ? gabung(dasar, dbRef.current as DB, server) : server;
-          versiRef.current = r.versi ?? versiRef.current;
+          versiRef.current = r.versi;
           dasarRef.current = JSON.stringify(server);
+          simpanDasar(dasarRef.current);
           kotorRef.current = true;
           pasangDb(hasil);
           simpanDB(hasil);
@@ -199,109 +221,98 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             await dorongRef.current?.(percobaan + 1);
             return;
           }
-        } else {
-          setStatus("Sheet: " + (r.pesan ?? "permintaan ditolak"), true);
         }
       } catch (e) {
-        const pesan = e instanceof Error && e.name === "AbortError" ? "waktu habis" : "gagal";
-        setStatus(`Sheet: ${pesan} menyimpan, dicoba lagi. Data tetap aman di perangkat ini.`, true);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => void dorongRef.current?.(0), 10000);
+        if (e instanceof Error && e.message === "terlalu besar") {
+          setStatus("Firebase: data terlalu besar. Unduh cadangan, lalu hapus tanggal lama di menu Cadangan.", true);
+        } else {
+          const pesan = e instanceof Error && e.message === "waktu habis" ? "waktu habis" : "gagal";
+          setStatus(`Firebase: ${pesan} menyimpan, dicoba lagi. Data tetap aman di perangkat ini.`, true);
+          if (timerRef.current) clearTimeout(timerRef.current);
+          timerRef.current = setTimeout(() => void dorongRef.current?.(0), 10000);
+        }
       }
       sedangRef.current = false;
     },
-    [gabung, jadwalDorong, pasangDb, setStatus],
+    [gabung, jadwalDorong, pasangDb, setStatus, simpanDasar],
   );
 
   const dorongRef = useRef(dorong);
   dorongRef.current = dorong;
 
+  /** Terapkan data dari server, sambil menjaga perubahan lokal yang belum terkirim. */
+  const terapkanServer = useCallback(
+    (r: DokCloud) => {
+      const server = normalisasiDB(JSON.parse(r.data), { longgar: true });
+      const serverJson = JSON.stringify(server);
+      const lokal = dbRef.current as DB;
+      const lokalJson = JSON.stringify(lokal);
+      const uid = uidRef.current;
+      const dasarJson = dasarRef.current ?? (uid ? bacaLokal(KUNCI_DASAR + ":" + uid) : null);
+
+      let hasil = server;
+      if (lokalJson !== serverJson) {
+        if (dasarJson) {
+          // Pernah sinkron: gabungkan hanya perubahan lokal sejak sinkron terakhir.
+          if (lokalJson !== dasarJson) {
+            hasil = gabung(normalisasiDB(JSON.parse(dasarJson)), lokal, server);
+          }
+        } else if (!adaIsi(server.hari) && adaIsi(lokal.hari)) {
+          // Firebase masih kosong, perangkat ini sudah berisi catatan: pakai milik perangkat ini.
+          hasil = gabung(server, lokal, server);
+        } else {
+          // Perangkat baru: data Firebase dipakai; data lokal disimpan sebagai salinan jaga-jaga.
+          tulisLokal(KUNCI_SEBELUM, lokalJson);
+        }
+      }
+      const perluKirim = JSON.stringify(hasil) !== serverJson;
+      versiRef.current = r.versi;
+      dasarRef.current = serverJson;
+      simpanDasar(serverJson);
+      kotorRef.current = perluKirim;
+      pasangDb(hasil);
+      simpanDB(hasil);
+      if (perluKirim) void dorongRef.current?.(0);
+    },
+    [gabung, pasangDb, simpanDasar],
+  );
+
   const tarik = useCallback(async () => {
-    const cfg = cfgRef.current;
-    if (!cfg) return;
-    if (kotorRef.current) {
+    const uid = uidRef.current;
+    if (!uid) return;
+    if (kotorRef.current && versiRef.current !== null) {
       await dorongRef.current?.(0);
       return;
     }
-    setStatus("Sheet: membaca…");
+    setStatus("Firebase: membaca…");
     try {
-      const r = await panggilSheet(cfg, "baca");
-      if (!r.ok) {
-        setStatus("Sheet: " + (r.pesan ?? "gagal membaca"), true);
-        return;
-      }
-      if (r.data) {
-        terapkanDariSheet(r.data, r.versi);
-        setStatus("Sheet: terhubung, data dimuat " + jamSekarang());
-      } else {
-        versiRef.current = r.versi ?? null;
+      const r = await bacaCloud(uid);
+      if (!r.ada) {
+        // Belum ada data di Firebase: unggah data perangkat ini.
+        versiRef.current = 0;
         dasarRef.current = null;
         kotorRef.current = true;
         await dorongRef.current?.(0);
+        return;
       }
+      if (versiRef.current === r.versi && !kotorRef.current) {
+        setStatus("Tersinkron " + jamSekarang());
+        return;
+      }
+      terapkanServer(r);
+      setStatus("Tersinkron " + jamSekarang());
     } catch {
-      setStatus("Sheet: gagal terhubung. Data tetap tersimpan di perangkat ini.", true);
+      setStatus("Firebase: gagal terhubung. Data tetap tersimpan di perangkat ini.", true);
     }
-  }, [setStatus, terapkanDariSheet]);
-
-  const cekBaru = useCallback(async () => {
-    const cfg = cfgRef.current;
-    if (!cfg || document.hidden || sedangRef.current || kotorRef.current || tundaRef.current) return;
-    if (Date.now() - ketikRef.current < 5000) return;
-    try {
-      let versi: number | undefined;
-      let data: unknown;
-      if (!tanpaVersiRef.current) {
-        const r = await panggilSheet(cfg, "versi");
-        if (r.ok && typeof r.versi === "number") versi = r.versi;
-        else if (r.pesan === "Aksi tidak dikenal") tanpaVersiRef.current = true;
-      }
-      if (versi === undefined) {
-        const r = await panggilSheet(cfg, "baca");
-        if (!r.ok) return;
-        versi = r.versi;
-        data = r.data;
-      }
-      if (versi === versiRef.current || kotorRef.current || sedangRef.current || tundaRef.current) return;
-      if (!data) {
-        const r = await panggilSheet(cfg, "baca");
-        if (!r.ok) return;
-        versi = r.versi;
-        data = r.data;
-      }
-      if (data) {
-        terapkanDariSheet(data, versi);
-        setStatus("Sheet: diperbarui dari perangkat lain " + jamSekarang());
-      }
-    } catch {
-      /* diamkan, dicoba lagi nanti */
-    }
-  }, [setStatus, terapkanDariSheet]);
+  }, [setStatus, terapkanServer]);
 
   const segarkan = useCallback(() => {
-    if (!cfgRef.current) return;
-    if (versiRef.current === null) void tarik();
-    else void cekBaru();
-  }, [cekBaru, tarik]);
+    if (!uidRef.current) return;
+    void tarik();
+  }, [tarik]);
 
-  const hubungkanSheet = useCallback(
-    (cfg: SheetConfig) => {
-      cfgRef.current = cfg;
-      simpanConfigSheet(cfg);
-      setConfig(cfg);
-      versiRef.current = null;
-      dasarRef.current = null;
-      kotorRef.current = false;
-      void tarik();
-    },
-    [tarik],
-  );
-
-  const putuskanSheet = useCallback(() => {
-    cfgRef.current = null;
-    versiRef.current = null;
-    simpanConfigSheet(null);
-    setConfig(null);
+  const keluar = useCallback(() => {
+    void keluarAkun();
     setStatus("");
   }, [setStatus]);
 
@@ -316,7 +327,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSiap(true);
   }, []);
 
-  /* ===== simpan lokal + tandai perubahan untuk Sheet ===== */
+  /* ===== status login ===== */
+  useEffect(() => {
+    if (!firebaseAktif) return;
+    return pantauMasuk((p) => {
+      setPengguna(p);
+      setAuthSiap(true);
+    });
+  }, []);
+
+  /* ===== simpan lokal + tandai perubahan untuk Firebase ===== */
   useEffect(() => {
     if (!siap || !db) return;
     const dariRemote = remoteRef.current;
@@ -331,40 +351,58 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!dariRemote) jadwalDorong();
   }, [db, siap, jadwalDorong]);
 
-  /* ===== sambungkan ulang Sheet saat halaman dibuka ===== */
+  /* ===== sambungkan ke Firebase setelah login ===== */
+  const uidPengguna = pengguna?.uid ?? null;
   useEffect(() => {
-    if (!siap) return;
-    if (mulaiSekali.current) return;
-    mulaiSekali.current = true;
-    const cfg = muatConfigSheet();
-    if (!cfg) return;
-    cfgRef.current = cfg;
-    setConfig(cfg);
-    void tarik();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [siap]);
+    if (!siap || !uidPengguna) return;
+    uidRef.current = uidPengguna;
+    versiRef.current = null;
+    dasarRef.current = null;
+    kotorRef.current = false;
+    let batal = false;
+    let lepas: (() => void) | null = null;
 
-  /* ===== pemicu pemeriksaan berkala ===== */
+    void (async () => {
+      await tarik();
+      if (batal) return;
+      // Dengarkan perubahan dari perangkat lain.
+      lepas = pantauCloud(
+        uidPengguna,
+        (r) => {
+          if (!r.ada || versiRef.current === null || r.versi === versiRef.current) return;
+          if (kotorRef.current || sedangRef.current || tundaRef.current) return;
+          try {
+            terapkanServer(r);
+            setStatus("Diperbarui dari perangkat lain " + jamSekarang());
+          } catch {
+            setStatus("Firebase: data dari perangkat lain tidak bisa dibaca.", true);
+          }
+        },
+        () => setStatus("Firebase: sambungan terputus. Data tetap tersimpan di perangkat ini.", true),
+      );
+    })();
+
+    return () => {
+      batal = true;
+      lepas?.();
+      uidRef.current = null;
+      versiRef.current = null;
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siap, uidPengguna]);
+
+  /* ===== segarkan saat aplikasi dibuka kembali ===== */
   useEffect(() => {
     if (!siap) return;
-    const catatKetik = () => {
-      ketikRef.current = Date.now();
-    };
     const saatTampil = () => {
       if (!document.hidden) segarkan();
     };
-    document.addEventListener("input", catatKetik);
     document.addEventListener("visibilitychange", saatTampil);
-    window.addEventListener("focus", segarkan);
     window.addEventListener("online", segarkan);
-    const interval = setInterval(segarkan, 20000);
     return () => {
-      document.removeEventListener("input", catatKetik);
       document.removeEventListener("visibilitychange", saatTampil);
-      window.removeEventListener("focus", segarkan);
       window.removeEventListener("online", segarkan);
-      clearInterval(interval);
-      if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [siap, segarkan]);
 
@@ -514,6 +552,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setSalinanSebelum(JSON.stringify(dasar));
           pasangDb(hasil.db, false);
           simpanDB(hasil.db);
+          jadwalDorong();
         }
         return hasil;
       },
@@ -524,6 +563,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const lama = normalisasiDB(JSON.parse(salinanSebelum), { longgar: true });
           pasangDb(lama, false);
           simpanDB(lama);
+          jadwalDorong();
           setSalinanSebelum(null);
           return true;
         } catch {
@@ -544,17 +584,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
       gantiTanggal: (tgl) => setTanggal(tgl || hariIni()),
     };
-  }, [pasangDb, salinanSebelum, update]);
+  }, [jadwalDorong, pasangDb, salinanSebelum, update]);
 
   const konteks = useMemo(() => (db ? buatKonteks(db) : { saldo: {} }), [db]);
 
-  if (!siap || !db) {
+  if (!siap || !db || !authSiap) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <p className="text-sm text-slate-500">Memuat catatan…</p>
       </div>
     );
   }
+
+  if (firebaseAktif && !pengguna) return <LayarMasuk />;
 
   return (
     <StoreContext.Provider
@@ -564,9 +606,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         tanggal,
         ukuran,
         galatSimpan,
-        sheet: { ...sheetStatus, config, aktif: !!config },
-        hubungkanSheet,
-        putuskanSheet,
+        cloud: { ...cloudStatus, aktif: firebaseAktif && !!pengguna, email: pengguna?.email ?? "" },
+        keluar,
+        sinkronSekarang: segarkan,
         aksi,
       }}
     >
