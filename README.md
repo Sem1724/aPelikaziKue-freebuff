@@ -6,7 +6,7 @@ saldo kurang/lebih yang menggantung, dan rekap penitip yang dibayar per periode.
 Versi ini adalah penulisan ulang dari aplikasi satu-file `v21.html` ke Next.js + TypeScript.
 Seluruh fitur dan rumus uang tetap sama, tetapi kode dipisah menjadi modul yang bisa diuji.
 
-##Nuku
+## Nuku
 - Ini cukup lengkap
 - Domain pake Vercel
 - Database pake Firebase
