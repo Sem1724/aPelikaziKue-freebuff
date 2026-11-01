@@ -6,13 +6,49 @@ import { gaya, gayaCss, tabelCss, KELUARGA_HURUF } from "@/lib/gaya";
 import { rp, labelTgl } from "@/lib/format";
 import { labelSebelum } from "@/lib/report";
 import { useStore } from "@/lib/store";
-import type { Gaya, Penitip } from "@/lib/types";
+import type { Gaya, Penitip, Settings } from "@/lib/types";
 
 const keAngka = (v: string): number | "" => {
   if (v === "") return "";
   const n = Number(v);
   return Number.isFinite(n) ? Math.max(0, n) : "";
 };
+
+/**
+ * Satu baris ringkasan (Brt, Diterima, dst.). Sengaja berada di luar KartuPenitip:
+ * jika didefinisikan di dalamnya, React membuat ulang baris (dan input di dalamnya)
+ * pada setiap ketikan sehingga kursor hilang setelah satu angka.
+ */
+function Baris({
+  s,
+  n,
+  sel,
+  kunci,
+  label,
+  nilai,
+  children,
+}: {
+  s: Settings;
+  n: number;
+  sel: CSSProperties;
+  kunci: string;
+  label: string;
+  nilai?: string;
+  children?: React.ReactNode;
+}) {
+  const g: Gaya = gaya(s, kunci);
+  if (g.tampil === false) return null;
+  return (
+    <tr>
+      <td colSpan={Math.max(1, n - 1)} style={{ ...gayaCss(g), ...sel }}>
+        {label}
+      </td>
+      <td style={{ ...gayaCss(g, g.rataNilai), ...sel } as CSSProperties}>
+        {children ?? nilai ?? ""}
+      </td>
+    </tr>
+  );
+}
 
 /** Satu kartu penitip pada tab Input Harian. */
 export function KartuPenitip({ p }: { p: Penitip }) {
@@ -33,31 +69,6 @@ export function KartuPenitip({ p }: { p: Penitip }) {
   const n = kolom.length;
   const gk = kolom.map((k) => gaya(s, k.kunci));
   const gh = gaya(s, "kepala");
-
-  const Baris = ({
-    kunci,
-    label,
-    nilai,
-    children,
-  }: {
-    kunci: string;
-    label: string;
-    nilai?: string;
-    children?: React.ReactNode;
-  }) => {
-    const g: Gaya = gaya(s, kunci);
-    if (g.tampil === false) return null;
-    return (
-      <tr>
-        <td colSpan={Math.max(1, n - 1)} style={{ ...gayaCss(g), ...sel }}>
-          {label}
-        </td>
-        <td style={{ ...gayaCss(g, g.rataNilai), ...sel } as CSSProperties}>
-          {children ?? nilai ?? ""}
-        </td>
-      </tr>
-    );
-  };
 
   return (
     <section className="card overflow-hidden">
@@ -161,18 +172,21 @@ export function KartuPenitip({ p }: { p: Penitip }) {
                   );
                 })}
 
-                <Baris kunci="rBrt" label={s.pdfBrt} nilai={rp(r.total)} />
+                <Baris s={s} n={n} sel={sel} kunci="rBrt" label={s.pdfBrt} nilai={rp(r.total)} />
                 {r.sebelum !== 0 && (
                   <>
                     <Baris
+                      s={s}
+                      n={n}
+                      sel={sel}
                       kunci={r.sebelum < 0 ? "rTbh" : "rPtg"}
                       label={labelSebelum(r.sebelum, r.tglSebelum, s)}
                       nilai={rp(Math.abs(r.sebelum))}
                     />
-                    <Baris kunci="rTotal" label={s.pdfTotal} nilai={rp(r.harus)} />
+                    <Baris s={s} n={n} sel={sel} kunci="rTotal" label={s.pdfTotal} nilai={rp(r.harus)} />
                   </>
                 )}
-                <Baris kunci="rDiterima" label={s.pdfDiterima}>
+                <Baris s={s} n={n} sel={sel} kunci="rDiterima" label={s.pdfDiterima}>
                   <input
                     type="number"
                     min={0}
@@ -187,6 +201,9 @@ export function KartuPenitip({ p }: { p: Penitip }) {
                 </Baris>
                 {r.saldo !== null && r.saldo !== 0 && (
                   <Baris
+                      s={s}
+                      n={n}
+                      sel={sel}
                     kunci={r.saldo < 0 ? "rKurang" : "rLebih"}
                     label={r.saldo < 0 ? s.kurang : s.lebih}
                     nilai={rp(Math.abs(r.saldo))}
