@@ -173,6 +173,10 @@ export type RekapHari = { tgl: string; r: Ringkasan };
 export type RekapPeriode = {
   rinci: RekapHari[];
   sampai: string | null;
+  /** tanggal pertama periode; tetap terisi walau hari pertama disembunyikan */
+  tglPertama: string | null;
+  /** true bila hari pertama tidak ikut ke PDF/teks (hanya kurang/lebihnya yang dibawa) */
+  awalDisembunyikan: boolean;
   total: number;
   kotak: number;
   laku: number;
@@ -182,6 +186,37 @@ export type RekapPeriode = {
   /** tanggal yang uang kotaknya belum diisi */
   kosong: string[];
 };
+
+function hitungRekap(
+  rinci: RekapHari[],
+  sampai: string | null,
+  tglPertama: string | null,
+  awalDisembunyikan: boolean,
+  awalCadangan?: { saldo: number; tgl: string },
+): RekapPeriode {
+  const total = rinci.reduce((a, x) => a + x.r.total, 0);
+  const kotak = rinci.reduce((a, x) => a + (x.r.fisik ?? 0), 0);
+  const laku = rinci.reduce((a, x) => a + x.r.baris.reduce((b, k) => b + (k.siap ? k.laku : 0), 0), 0);
+  const awal = rinci.length ? rinci[0].r.sebelum : (awalCadangan?.saldo ?? 0);
+  const tglAwal = rinci.length ? rinci[0].r.tglSebelum : (awalCadangan?.tgl ?? null);
+  let akhir = awal;
+  rinci.forEach((x) => {
+    if (x.r.fisik !== null && x.r.saldo !== null) akhir = x.r.saldo;
+  });
+  return {
+    rinci,
+    sampai,
+    tglPertama,
+    awalDisembunyikan,
+    total,
+    kotak,
+    laku,
+    awal,
+    tglAwal,
+    akhir,
+    kosong: rinci.filter((x) => x.r.fisik === null).map((x) => x.tgl),
+  };
+}
 
 export function riwayatRekap(db: DB, ctx: Konteks, p: Penitip): RekapPeriode[] {
   const tutup = (db.periode?.[p.id] || []).slice().sort((a, b) => a.sampai.localeCompare(b.sampai));
@@ -197,26 +232,7 @@ export function riwayatRekap(db: DB, ctx: Konteks, p: Penitip): RekapPeriode[] {
       .filter((t) => t > mulai && (!sampai || t <= sampai))
       .map((t) => ({ tgl: t, r: ringkas(db, ctx, t, p) }))
       .filter((x) => x.r.baris.length);
-    const total = rinci.reduce((a, x) => a + x.r.total, 0);
-    const kotak = rinci.reduce((a, x) => a + (x.r.fisik ?? 0), 0);
-    const laku = rinci.reduce((a, x) => a + x.r.baris.reduce((b, k) => b + (k.siap ? k.laku : 0), 0), 0);
-    const awal = rinci.length ? rinci[0].r.sebelum : 0;
-    const tglAwal = rinci.length ? rinci[0].r.tglSebelum : null;
-    let akhir = awal;
-    rinci.forEach((x) => {
-      if (x.r.fisik !== null && x.r.saldo !== null) akhir = x.r.saldo;
-    });
-    return {
-      rinci,
-      sampai,
-      total,
-      kotak,
-      laku,
-      awal,
-      tglAwal,
-      akhir,
-      kosong: rinci.filter((x) => x.r.fisik === null).map((x) => x.tgl),
-    };
+    return hitungRekap(rinci, sampai, rinci.length ? rinci[0].tgl : null, false);
   };
 
   tutup.forEach((c) => {
@@ -227,8 +243,33 @@ export function riwayatRekap(db: DB, ctx: Konteks, p: Penitip): RekapPeriode[] {
   return hasil;
 }
 
+/**
+ * Hari pertama periode hanya bisa disembunyikan bila uang fisiknya sudah diisi,
+ * karena kurang/lebih yang dibawa ke hari berikutnya baru ada setelah itu.
+ */
+export function bisaSembunyikanAwal(it: RekapPeriode): boolean {
+  return it.rinci.length > 0 && it.rinci[0].r.saldo !== null;
+}
+
+export function awalSedangDisembunyikan(db: DB, pid: string, it: RekapPeriode): boolean {
+  return !!it.tglPertama && !!db.sembunyiAwal?.[pid]?.includes(it.tglPertama) && bisaSembunyikanAwal(it);
+}
+
+/**
+ * Rekap untuk PDF dan teks WhatsApp: hari pertama dibuang, lalu kurang/lebih hari itu
+ * menjadi saldo awal periode sehingga angka akhir tetap sama dengan rekap lengkap.
+ */
+export function rekapTanpaHariPertama(it: RekapPeriode): RekapPeriode {
+  if (!bisaSembunyikanAwal(it)) return it;
+  const pertama = it.rinci[0];
+  return hitungRekap(it.rinci.slice(1), it.sampai, it.tglPertama, true, {
+    saldo: pertama.r.saldo ?? 0,
+    tgl: pertama.tgl,
+  });
+}
+
 export function rentangRekap(it: RekapPeriode): string {
-  const awal = it.rinci.length ? labelTglRingkas(it.rinci[0].tgl) : "-";
+  const awal = it.tglPertama ? labelTglRingkas(it.tglPertama) : "-";
   const akhir = it.sampai ? labelTglRingkas(it.sampai) : "sekarang";
   return `${awal} - ${akhir}`;
 }
