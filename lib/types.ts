@@ -106,6 +106,11 @@ export type DB = {
   pengaturan: Settings;
   pengaturanRekap: Settings;
   periode: Record<string, Periode[]>;
+  /**
+   * Per penitip: tanggal pertama periode yang disembunyikan dari PDF dan teks rekap.
+   * Hanya kurang/lebih dari hari itu yang ikut ke laporan.
+   */
+  sembunyiAwal: Record<string, string[]>;
 };
 
 export type JenisCadangan = "harian" | "pengaturan" | "master" | "semua";
