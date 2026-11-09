@@ -48,6 +48,8 @@ type Aksi = {
 
   tutupPeriode: (pid: string, sampai: string) => void;
   batalTutupPeriode: (pid: string) => void;
+  /** Sembunyikan/tampilkan hari pertama sebuah periode pada PDF dan teks rekap. */
+  setSembunyiAwal: (pid: string, tgl: string, sembunyi: boolean) => void;
 
   pulihkan: (jenis: "harian" | "pengaturan" | "master" | "semua", teks: string) => HasilPulih;
   batalkanPulih: () => boolean;
@@ -140,7 +142,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const gabung = useCallback((basis: DB, lokal: DB, server: DB): DB => {
     const hasil: DB = JSON.parse(JSON.stringify(server));
     const sama = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-    (["penitip", "pengaturan", "pengaturanRekap", "periode"] as const).forEach((k) => {
+    (["penitip", "pengaturan", "pengaturanRekap", "periode", "sembunyiAwal"] as const).forEach((k) => {
       if (!sama(lokal[k], basis[k])) {
         (hasil as unknown as Record<string, unknown>)[k] = lokal[k];
       }
@@ -544,6 +546,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           return { ...prev, periode: { ...prev.periode, [pid]: daftar } };
         }),
 
+      setSembunyiAwal: (pid, tgl, sembunyi) =>
+        update((prev) => {
+          const lain = (prev.sembunyiAwal?.[pid] ?? []).filter((t) => t !== tgl);
+          const daftar = sembunyi ? [...lain, tgl].sort() : lain;
+          const baru = { ...(prev.sembunyiAwal ?? {}) };
+          if (daftar.length) baru[pid] = daftar;
+          else delete baru[pid];
+          return { ...prev, sembunyiAwal: baru };
+        }),
+
       pulihkan: (jenis, teks) => {
         const dasar = dbRef.current;
         if (!dasar) return { ok: false, pesan: "Data belum siap." };
@@ -577,10 +589,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         update((prev) => {
           const hari = { ...prev.hari };
           delete hari[tgl];
-          return { ...prev, hari };
+          const sembunyiAwal: DB["sembunyiAwal"] = {};
+          Object.entries(prev.sembunyiAwal ?? {}).forEach(([pid, daftar]) => {
+            const sisa = daftar.filter((t) => t !== tgl);
+            if (sisa.length) sembunyiAwal[pid] = sisa;
+          });
+          return { ...prev, hari, sembunyiAwal };
         }),
 
-      hapusSemuaHari: () => update((prev) => ({ ...prev, hari: {}, periode: {} })),
+      hapusSemuaHari: () => update((prev) => ({ ...prev, hari: {}, periode: {}, sembunyiAwal: {} })),
 
       gantiTanggal: (tgl) => setTanggal(tgl || hariIni()),
     };
