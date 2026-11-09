@@ -38,6 +38,7 @@ export function buatDataAwal(): DB {
     pengaturan: { ...DEF_PENGATURAN, gaya: {} },
     pengaturanRekap: klonRekap({ ...DEF_PENGATURAN, gaya: {} }),
     periode: {},
+    sembunyiAwal: {},
   };
 }
 
@@ -137,6 +138,17 @@ function rapikanPeriode(mentah: unknown): DB["periode"] {
   return hasil;
 }
 
+function rapikanSembunyiAwal(mentah: unknown): DB["sembunyiAwal"] {
+  const hasil: DB["sembunyiAwal"] = {};
+  if (!objek(mentah)) return hasil;
+  Object.entries(mentah).forEach(([pid, daftar]) => {
+    if (!Array.isArray(daftar)) return;
+    const tgl = daftar.filter((x): x is string => typeof x === "string" && /^\d{4}-\d{2}-\d{2}$/.test(x));
+    if (tgl.length) hasil[pid] = [...new Set(tgl)].sort();
+  });
+  return hasil;
+}
+
 /**
  * Terima data dari localStorage, cadangan lama, atau Firebase, lalu jadikan DB yang sah.
  * Melempar error hanya jika data sama sekali tidak bisa dipakai.
@@ -158,6 +170,7 @@ export function normalisasiDB(mentah: unknown, opsi: { longgar?: boolean } = {})
     pengaturan,
     pengaturanRekap,
     periode: rapikanPeriode(mentah.periode),
+    sembunyiAwal: rapikanSembunyiAwal(mentah.sembunyiAwal),
   };
 }
 
