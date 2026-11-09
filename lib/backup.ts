@@ -29,6 +29,7 @@ export type FileCadangan = {
   dibuat: string;
   data: unknown;
   periode?: DB["periode"];
+  sembunyiAwal?: DB["sembunyiAwal"];
   pengaturanRekap?: DB["pengaturanRekap"];
 };
 
@@ -46,7 +47,10 @@ export function buatIsiCadangan(db: DB, jenis: JenisCadangan): string {
             ? db.penitip
             : db,
   };
-  if (jenis === "harian") isi.periode = db.periode;
+  if (jenis === "harian") {
+    isi.periode = db.periode;
+    isi.sembunyiAwal = db.sembunyiAwal;
+  }
   if (jenis === "pengaturan") isi.pengaturanRekap = db.pengaturanRekap;
   return JSON.stringify(isi);
 }
@@ -90,7 +94,12 @@ export function pulihkanCadangan(db: DB, jenis: JenisCadangan, teksMentah: strin
   try {
     if (jenis === "harian") {
       if (!objek(data)) return { ok: false, pesan: "Isi file tidak sesuai untuk Catatan Harian." };
-      const baru = normalisasiDB({ ...db, hari: data, periode: objek(isi) ? (isi.periode ?? db.periode) : db.periode });
+      const baru = normalisasiDB({
+        ...db,
+        hari: data,
+        periode: objek(isi) ? (isi.periode ?? db.periode) : db.periode,
+        sembunyiAwal: objek(isi) ? (isi.sembunyiAwal ?? db.sembunyiAwal) : db.sembunyiAwal,
+      });
       return { ok: true, db: baru, pesan: "Catatan Harian berhasil dipulihkan." };
     }
     if (jenis === "pengaturan") {
