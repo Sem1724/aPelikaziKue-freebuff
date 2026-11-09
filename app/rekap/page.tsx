@@ -2,9 +2,15 @@
 
 import Link from "next/link";
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { riwayatRekap, rentangRekap } from "@/lib/calc";
+import {
+  awalSedangDisembunyikan,
+  bisaSembunyikanAwal,
+  rekapTanpaHariPertama,
+  rentangRekap,
+  riwayatRekap,
+} from "@/lib/calc";
 import { salinTeks } from "@/lib/clipboard";
-import { labelTgl, rp } from "@/lib/format";
+import { labelSaldo, labelTgl, rp } from "@/lib/format";
 import { buatPdfRekap, tautanPdf } from "@/lib/pdf";
 import { barisHariRekap, barisPeriodeRekap, buatTeksRekap, judulRekap } from "@/lib/report";
 import { useStore } from "@/lib/store";
@@ -56,7 +62,13 @@ export default function HalamanRekap() {
   if (!it) return null;
 
   const s = db.pengaturanRekap;
-  const teks = buatTeksRekap(it, p, s);
+
+  // Hari pertama periode bisa disembunyikan; PDF dan teks WhatsApp memakai itLaporan.
+  const bisaSembunyi = bisaSembunyikanAwal(it);
+  const sembunyi = awalSedangDisembunyikan(db, p.id, it);
+  const itLaporan = sembunyi ? rekapTanpaHariPertama(it) : it;
+  const hariPertama = it.rinci[0];
+  const teks = buatTeksRekap(itLaporan, p, s);
 
   const tutup = () => {
     if (!sampai) return setInfo("Pilih tanggal terakhir yang ikut periode ini.");
@@ -84,7 +96,7 @@ export default function HalamanRekap() {
     setSibuk(true);
     setInfo("");
     try {
-      const doc = await buatPdfRekap(db, konteks, s, it, p);
+      const doc = await buatPdfRekap(db, konteks, s, itLaporan, p);
       if (mode === "unduh") {
         doc.save(`Rekap-${p.nama.replace(/\s+/g, "-")}-${it.sampai ?? "berjalan"}.pdf`);
         setInfo("PDF rekap diunduh.");
@@ -164,30 +176,76 @@ export default function HalamanRekap() {
                   </td>
                 </tr>
               ) : (
-                it.rinci.map((x) => (
-                  <Fragment key={x.tgl}>
-                    {x.r.baris.map((k) => (
-                      <tr key={`${x.tgl}-${k.id}`}>
-                        <td>{labelTgl(x.tgl)}</td>
-                        <td>{k.nama}</td>
-                        <td>{k.nitip}</td>
-                        <td>{k.siap ? k.sisa : "?"}</td>
-                        <td>{k.laku}</td>
-                        <td>{rp(k.uang)}</td>
-                      </tr>
-                    ))}
-                    {barisHariRekap(x.r, s).map((b) => (
-                      <tr key={`${x.tgl}-${b.kunci}`} className="bg-slate-50/70">
-                        <td colSpan={5} className="text-slate-600 italic">
-                          {b.teksLayar}
-                        </td>
-                        <td className={b.nada === "minus" ? "text-red-700" : b.nada === "plus" ? "text-emerald-700" : ""}>
-                          {b.nilai}
-                        </td>
-                      </tr>
-                    ))}
-                  </Fragment>
-                ))
+                it.rinci.map((x, i) => {
+                  const pertama = i === 0;
+                  const redup = pertama && sembunyi;
+                  return (
+                    <Fragment key={x.tgl}>
+                      {pertama && (
+                        <tr className="bg-amber-50/70">
+                          <td colSpan={6}>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs text-slate-700">
+                                <span className="font-semibold">Hari pertama periode ({labelTgl(x.tgl)})</span>
+                                <span className="ml-1 text-slate-500">
+                                  {sembunyi
+                                    ? x.r.saldo === 0
+                                      ? "· tidak tampil di PDF, pas tanpa kurang/lebih."
+                                      : `· tidak tampil di PDF, hanya ${labelSaldo(x.r.saldo).toLowerCase()} yang dibawa.`
+                                    : "· tampil lengkap di PDF."}
+                                </span>
+                                {!bisaSembunyi && (
+                                  <span className="ml-1 text-red-700">
+                                    Isi uang fisik hari ini dulu agar bisa disembunyikan.
+                                  </span>
+                                )}
+                              </div>
+                              <div className="inline-flex gap-1" role="group" aria-label="Tampilan hari pertama di PDF">
+                                <button
+                                  type="button"
+                                  className={`btn btn-sm ${!sembunyi ? "btn-primary" : "btn-secondary"}`}
+                                  aria-pressed={!sembunyi}
+                                  onClick={() => aksi.setSembunyiAwal(p.id, x.tgl, false)}
+                                >
+                                  Tampilkan
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`btn btn-sm ${sembunyi ? "btn-primary" : "btn-secondary"}`}
+                                  aria-pressed={sembunyi}
+                                  disabled={!bisaSembunyi}
+                                  onClick={() => aksi.setSembunyiAwal(p.id, x.tgl, true)}
+                                >
+                                  Tidak ditampilkan
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      {x.r.baris.map((k) => (
+                        <tr key={`${x.tgl}-${k.id}`} className={redup ? "opacity-45" : ""}>
+                          <td>{labelTgl(x.tgl)}</td>
+                          <td>{k.nama}</td>
+                          <td>{k.nitip}</td>
+                          <td>{k.siap ? k.sisa : "?"}</td>
+                          <td>{k.laku}</td>
+                          <td>{rp(k.uang)}</td>
+                        </tr>
+                      ))}
+                      {barisHariRekap(x.r, s).map((b) => (
+                        <tr key={`${x.tgl}-${b.kunci}`} className={`bg-slate-50/70 ${redup ? "opacity-45" : ""}`}>
+                          <td colSpan={5} className="text-slate-600 italic">
+                            {b.teksLayar}
+                          </td>
+                          <td className={b.nada === "minus" ? "text-red-700" : b.nada === "plus" ? "text-emerald-700" : ""}>
+                            {b.nilai}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -197,10 +255,15 @@ export default function HalamanRekap() {
       <section className="card overflow-hidden">
         <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
           Ringkasan periode
+          {sembunyi && hariPertama && (
+            <span className="ml-2 text-xs font-normal text-slate-500">
+              (tanpa {labelTgl(hariPertama.tgl)}, sama seperti di PDF)
+            </span>
+          )}
         </h2>
         <table className="table-data min-w-full">
           <tbody>
-            {barisPeriodeRekap(it, s).map((b) => (
+            {barisPeriodeRekap(itLaporan, s).map((b) => (
               <tr key={b.kunci}>
                 <td>{b.teksLayar}</td>
                 <td className={b.nada === "minus" ? "text-red-700" : b.nada === "plus" ? "text-emerald-700" : ""}>
