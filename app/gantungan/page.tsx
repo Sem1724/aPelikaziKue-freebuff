@@ -75,34 +75,13 @@ export default function HalamanGantungan() {
                     {labelSaldo(d.saldo)}
                   </span>
                 </div>
-                <div className="grid gap-1 border-t border-slate-100 px-4 py-3 text-xs text-slate-500 sm:grid-cols-2">
+                <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
                   <p>
-                    Terakhir nitip: {labelTgl(akhir.tgl)}{" "}
+                    Gantungan terakhir: {labelTgl(akhir.tgl)}{" "}
                     <span className={hari >= batasHari ? "font-semibold text-red-600" : ""}>
                       ({hari} hari lalu)
                     </span>
                   </p>
-                  <p>Saldo mulai muncul: {labelTgl(d.rantai[0].tgl)}</p>
-                </div>
-                <div className="overflow-x-auto border-t border-slate-100">
-                  <table className="table-data min-w-full">
-                    <thead>
-                      <tr>
-                        <th>Tanggal</th>
-                        <th>Saldo setelah hari itu</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {d.rantai.map((r) => (
-                        <tr key={r.tgl}>
-                          <td>{labelTgl(r.tgl)}</td>
-                          <td className={r.saldo < 0 ? "text-red-700" : r.saldo > 0 ? "text-emerald-700" : ""}>
-                            {labelSaldo(r.saldo)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               </section>
             );
@@ -111,7 +90,7 @@ export default function HalamanGantungan() {
       )}
 
       <p className="text-xs text-slate-500">
-        Saldo hilang dari daftar ini setelah penitip nitip lagi dan uang fisiknya Pas.
+        Yang tampil hanya gantungan terakhir tiap penitip. Hilang dari daftar ini setelah penitip nitip lagi dan uang fisiknya Pas.
       </p>
     </div>
   );
