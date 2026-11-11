@@ -1,4 +1,4 @@
-# Catatan Titipan Kue
+# Ini Jalan. Kepake. Ati - Ati
 
 Aplikasi web untuk mencatat titipan kue harian: nitip, sisa, uang fisik, laporan WhatsApp/PDF,
 saldo kurang/lebih yang menggantung, dan rekap penitip yang dibayar per periode.
